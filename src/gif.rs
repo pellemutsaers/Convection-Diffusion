@@ -26,22 +26,43 @@ fn magma_palette() -> Vec<u8> {
     palette
 }
 
-/// Convert a solution vector into an indexed magma GIF frame (flipped)
-fn vector_to_frame(data: &[f64], size: usize) -> Frame<'static> {
+/// Convert a solution vector into an indexed magma GIF frame (flipped) with interpolation
+fn vector_to_frame(data: &[f64], size: usize, output_size: usize) -> Frame<'static> {
     let normalized = normalize(data);
 
-    let mut flipped_data = Vec::with_capacity(normalized.len());
-    for row_start in (0..size).rev() { // iterate rows in reverse order
-        for col in 0..size { // iterate columns in normal order
-            let index = row_start * size + col;
-            flipped_data.push(normalized[index]);
+    let mut interpolated_data = vec![0u8; output_size * output_size];
+
+    for y_out in 0..output_size {
+        for x_out in 0..output_size {
+            let x = x_out as f64 * (size - 1) as f64 / (output_size - 1) as f64;
+            let y = y_out as f64 * (size - 1) as f64 / (output_size - 1) as f64;
+
+            let x_floor = x.floor() as usize;
+            let y_floor = y.floor() as usize;
+            let x_ceil = (x_floor + 1).min(size - 1);
+            let y_ceil = (y_floor + 1).min(size - 1);
+
+            let x_weight = x - x_floor as f64;
+            let y_weight = y - y_floor as f64;
+
+            let a = normalized[(size - 1 - y_floor) * size + x_floor] as f64;
+            let b = normalized[(size - 1 - y_floor) * size + x_ceil] as f64;
+            let c = normalized[(size - 1 - y_ceil) * size + x_floor] as f64;
+            let d = normalized[(size - 1 - y_ceil) * size + x_ceil] as f64;
+
+            let interpolated_value = (a * (1.0 - x_weight) * (1.0 - y_weight)
+                + b * x_weight * (1.0 - y_weight)
+                + c * (1.0 - x_weight) * y_weight
+                + d * x_weight * y_weight) as u8;
+
+            interpolated_data[y_out * output_size + x_out] = interpolated_value;
         }
     }
 
     let mut frame = Frame::from_indexed_pixels(
-        size as u16,
-        size as u16,
-        &flipped_data,
+        output_size as u16,
+        output_size as u16,
+        &interpolated_data,
         None,
     );
 
@@ -49,13 +70,12 @@ fn vector_to_frame(data: &[f64], size: usize) -> Frame<'static> {
     frame
 }
 
-/// Create an animated GIF from solution frames
-/// Create an animated GIF from solution frames with desired duration and FPS
-pub fn create_gif(frames: Vec<Vec<f64>>, grid_size: usize, gif_name: &str, gif_duration_seconds: u16, fps: u8) {
+/// Create an animated GIF from solution frames with desired duration, FPS, and output size
+pub fn create_gif(frames: Vec<Vec<f64>>, grid_size: usize, gif_name: &str, gif_duration_seconds: u16, fps: u8, output_size: usize) {
     let file = File::create(gif_name).unwrap();
     let magma_palette = magma_palette();
 
-    let mut encoder = Encoder::new(file, grid_size as u16, grid_size as u16, &magma_palette[..]).unwrap();
+    let mut encoder = Encoder::new(file, output_size as u16, output_size as u16, &magma_palette[..]).unwrap();
     encoder.set_repeat(Repeat::Infinite).unwrap();
 
     let total_frames = frames.len();
@@ -63,7 +83,6 @@ pub fn create_gif(frames: Vec<Vec<f64>>, grid_size: usize, gif_name: &str, gif_d
 
     let mut frame_indices = Vec::new();
     if desired_frame_count >= total_frames {
-        // If the desired frame count is greater than the amount of frames that exist, then just use all the frames.
         frame_indices = (0..total_frames).collect();
     } else {
         for i in 0..desired_frame_count {
@@ -75,7 +94,7 @@ pub fn create_gif(frames: Vec<Vec<f64>>, grid_size: usize, gif_name: &str, gif_d
     let frame_delay = (100 / fps) as u16; // Delay in hundredths of a second
 
     for &index in frame_indices.iter() {
-        let mut frame = vector_to_frame(&frames[index], grid_size);
+        let mut frame = vector_to_frame(&frames[index], grid_size, output_size);
         frame.delay = frame_delay;
         encoder.write_frame(&frame).unwrap();
     }

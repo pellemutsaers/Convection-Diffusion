@@ -2,8 +2,6 @@ use plotters::prelude::*;
 use colorgrad::preset::magma;
 use colorgrad::Gradient;
 
-
-
 pub fn plot_solution(solution: &[f64], res: usize) -> Result<(), Box<dyn std::error::Error>> {
     // Create drawing area
     let root = BitMapBackend::new("Convection-diffusion.png", (1000, 1000)).into_drawing_area();
